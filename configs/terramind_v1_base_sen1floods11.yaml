@@ -76,7 +76,7 @@ data:
 
     train_transform:
       - class_path: albumentations.D4  # Random flip and rotations
-      - class_path: ToTensorV2
+      - class_path: albumentations.pytorch.transforms.ToTensorV2
 
 model:
   class_path: terratorch.tasks.SemanticSegmentationTask

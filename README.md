@@ -28,11 +28,11 @@ We refer to [Hugging Face](https://huggingface.co/ibm-esa-geospatial/TerraMind-1
 
 Download or clone this repo and create a new environment with the latest version of TerraTorch.
 ```shell
-python -m venv venv # use python 3.10 or higher
+python -m venv venv # use python 3.11 or higher
 source venv/bin/activate
 pip install --upgrade pip
-pip install terratorch==1.1
-pip install jupyter gdown tensorboard # required for notebook examples
+pip install "terratorch>=1.2.4"
+pip install jupyter gdown tensorboard "setuptools<81" # required for notebook examples
 pip install diffusers==0.30.0  # required for TerraMind generations
 ```
 
@@ -58,6 +58,10 @@ We provide some config examples for [Sen1Floods11](https://github.com/cloudtostr
 - [terramind_v1_base_burnscars.yaml](configs%2Fterramind_v1_base_burnscars.yaml)
 
 - [terramind_v1_base_multitemporal_crop.yaml](configs%2Fterramind_v1_base_multitemporal_crop.yaml)
+
+**Warning for Mac users**: The UNetDecoder can lead to some failures because of the batch norms when training on MPS.
+Use a FCN decoder instead or install TerraTorch from main/v1.2.5 for a fix.
+
 
 We use the `GenericMultiModalDataModule` in the Sen1Floods11 example and the standard `GenericNonGeoSegmentationDataModule` for the single-modal Burn Scars dataset.
 We simplified the dataset folder structure compared to the original datasets. You can either adjust the paths in the config for the original datasets or download the updated version with the code in the notebooks.

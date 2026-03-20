@@ -27,7 +27,7 @@ data:
     train_transform:
       - class_path: terratorch.datasets.transforms.FlattenTemporalIntoChannels
       - class_path: albumentations.D4
-      - class_path: albumentations.pytorch.ToTensorV2
+      - class_path: albumentations.pytorch.transforms.ToTensorV2
       - class_path: terratorch.datasets.transforms.UnflattenTemporalFromChannels
         init_args:
           n_timesteps: 3
