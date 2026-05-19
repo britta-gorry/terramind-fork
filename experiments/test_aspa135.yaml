@@ -1,0 +1,115 @@
+# lightning.pytorch==2.1.1
+seed_everything: 42
+trainer:
+  accelerator: auto
+  strategy: auto
+  devices: auto
+  num_nodes: 1
+  precision: 16-mixed
+  logger: true
+  callbacks:
+    - class_path: RichProgressBar
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+  max_epochs: 100
+  log_every_n_steps: 5
+  default_root_dir: output/terramind_small_aspa135/
+
+data:
+  class_path: GenericNonGeoSegmentationDataModule
+  init_args:
+    batch_size: 8
+    num_workers: 2
+    dataset_bands:  # Dataset bands -- as written in altum yaml
+      - BLUE
+      - GREEN
+      - RED
+      - RED_EDGE
+      - NIR
+      - THERMAL
+    rgb_indices:
+      - 2
+      - 1
+      - 0
+    train_data_root: sample_data/aspa135-arthur-data
+    val_data_root: sample_data/aspa135-arthur-data
+    test_data_root: sample_data/aspa135-arthur-data
+    train_split: sample_data/aspa135-arthur-data/splits/train.txt
+    val_split: sample_data/aspa135-arthur-data/splits/val.txt
+    test_split: sample_data/aspa135-arthur-data/splits/test.txt
+    img_grep: "*_corrected.tif"
+    label_grep: "*_rasterized.tif"
+    # Dataset stats -- unchanged from burnscars config, even though bands are edited
+    means:
+      -  0.033349706741586264
+      -  0.05701185520536176
+      -  0.05889748132001316
+      -  0.2323245113436119
+      -  0.1972854853760658
+      -  0.11944914225186566
+    stds:
+      -  0.02269135568823774
+      -  0.026807560223070237
+      -  0.04004109844362779
+      -  0.07791732423672691
+      -  0.08708738838140137
+      -  0.07241979477437814
+    num_classes: 2
+    train_transform:
+      - class_path: albumentations.D4
+      - class_path: albumentations.pytorch.transforms.ToTensorV2
+    no_data_replace: 0
+    no_label_replace: -1
+
+model:
+  class_path: terratorch.tasks.SemanticSegmentationTask
+  init_args:
+    model_factory: EncoderDecoderFactory
+    model_args:
+      backbone: terramind_v1_small
+      backbone_pretrained: true
+      backbone_modalities:
+        - S2L2A
+      backbone_bands: # Select subset of pre-trained bands
+        S2L2A:
+          - BLUE
+          - GREEN
+          - RED
+          - RED_EDGE
+          - NIR
+          - THERMAL
+
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]  # tiny, small, or base version
+#          indices: [5, 11, 17, 23]  # large version
+        - name: ReshapeTokensToImage
+          remove_cls_token: False
+        - name: LearnedInterpolateToPyramidal
+
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+
+      head_dropout: 0.1
+      num_classes: 2
+    loss: dice
+    ignore_index: -1
+    freeze_backbone: false
+    freeze_decoder: false
+    class_names:
+      - Others
+      - Vegetation
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 1.e-4
+    weight_decay: 0.1
+lr_scheduler:
+  class_path: ReduceLROnPlateau
+  init_args:
+    monitor: val/loss
+    factor: 0.5
+    patience: 5
+

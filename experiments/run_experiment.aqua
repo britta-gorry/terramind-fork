@@ -1,0 +1,209 @@
+#!/bin/bash -l
+# ─────────────────────────────────────────────────────────────────────────────
+# run_experiment.aqua  —  Universal run script: train → test → predict → summary
+#
+# This single script handles any TerraMind experiment. To run a different
+# dataset or backbone, only change the "CONFIGURE YOUR EXPERIMENT" block below.
+#
+# How to submit (from the terramind root, on the HPC login node):
+#   qsub experiments/run_experiment.aqua
+#
+# Why one script instead of separate fit/test scripts:
+#   Running everything in one job guarantees the same GPU node for all steps.
+#   Separate jobs can be allocated to different nodes, which causes CUDA
+#   initialisation failures when PyTorch tries to find a GPU that was on
+#   a different machine.
+#
+# Output folder naming:
+#   Each run creates a uniquely named folder: output/<EXPERIMENT_NAME>_<TIMESTAMP>
+#   e.g. output/sen1floods11_base_20260407_2038
+#   Multiple runs never overwrite each other. Each folder contains:
+#     run_config.yaml         — the exact config used (with paths filled in)
+#     checkpoints/best.ckpt   — best model weights
+#     checkpoints/last.ckpt   — final epoch weights
+#     metrics.csv             — all metrics per epoch, readable in Excel
+#     events.out.tfevents.*   — TensorBoard binary log
+#     predictions/            — one GeoTIFF per test scene
+# ─────────────────────────────────────────────────────────────────────────────
+
+#PBS -N tm_run
+#PBS -l select=1:ncpus=6:ngpus=1:mem=24gb
+#PBS -l walltime=14:00:00
+#PBS -j oe
+#PBS -m abe
+
+# ── CHANGE THIS to your actual QUT email address ──────────────────────────────
+#PBS -M brittany.gorry@hdr.qut.edu.au
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONFIGURE YOUR EXPERIMENT HERE — the only block you need to edit between runs
+# ══════════════════════════════════════════════════════════════════════════════
+
+# A short name describing this experiment. Used in the output folder name.
+# Convention: <dataset>_<backbone>  e.g. sen1floods11_base, burnscars_large
+# EXPERIMENT_NAME="sen1floods11_terramind_base"
+EXPERIMENT_NAME="burnscars_terramind_base"
+
+
+# Path to the config file for this experiment (relative to terramind root).
+# To switch datasets: point this at a different config file.
+# To switch backbone: edit backbone/SelectIndices inside the config file,
+#   or copy the config, edit the copy, and point this at the copy.
+# CONFIG="experiments/terramind_v1_base_sen1floods11.yaml"
+CONFIG="experiments/terramind_v1_base_burnscars.yaml"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# END OF CONFIGURATION — do not edit below this line for routine experiments
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+# ── Go to the terramind root ──────────────────────────────────────────────────
+cd $PBS_O_WORKDIR
+
+# ── Build the output directory path with a timestamp ─────────────────────────
+# date +%Y%m%d_%H%M gives e.g. 20260407_2038
+# This guarantees a unique folder for every run, even on the same day.
+TIMESTAMP=$(date +%Y%m%d_%H%M)
+RUN_DIR="output/${EXPERIMENT_NAME}_${TIMESTAMP}"
+mkdir -p "$RUN_DIR"
+
+echo "============================================================"
+echo "Experiment: $EXPERIMENT_NAME"
+echo "Job ID:     $PBS_JOBID"
+echo "Node:       $(hostname)"
+echo "GPU:        $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)"
+echo "Started:    $(date)"
+echo "Output dir: $RUN_DIR"
+echo "============================================================"
+
+# ── Make pixi available ───────────────────────────────────────────────────────
+export PATH="$HOME/.pixi/bin:$PATH"
+
+# ── Create a run-specific config with the output path filled in ───────────────
+# The YAML contains the placeholder string __OUTPUT_DIR__ wherever the output
+# path is needed (default_root_dir and both logger save_dirs).
+# sed replaces every occurrence with the actual timestamped path.
+# The result is saved as run_config.yaml inside the output folder itself,
+# so you always have an exact record of what was run.
+RUN_CONFIG="$RUN_DIR/run_config.yaml"
+sed "s|__OUTPUT_DIR__|$RUN_DIR|g" "$CONFIG" > "$RUN_CONFIG"
+
+echo "Run config: $RUN_CONFIG"
+echo "============================================================"
+
+# Checkpoint path — used by test and predict steps
+CKPT="$RUN_DIR/checkpoints/best.ckpt"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 1 — TRAINING
+# Reads run_config.yaml, trains for max_epochs, saves best.ckpt and last.ckpt.
+# The ModelCheckpoint callback in the config prints a line each time a new
+# best val/mIoU is reached — these are the most useful lines to watch live.
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo ">>> STEP 1 — Training"
+echo "------------------------------------------------------------"
+
+pixi run terratorch fit --config "$RUN_CONFIG"
+
+# $? is the exit code of the previous command: 0 = success, anything else = error
+if [ $? -ne 0 ]; then
+    echo "ERROR: Training failed. Stopping."
+    exit 1
+fi
+echo "Training complete."
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 2 — TESTING
+# Loads best.ckpt and evaluates on the held-out test split.
+# Metrics are printed to the terminal and appended to metrics.csv.
+# This is the number to compare against the published TerraMind paper.
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo ">>> STEP 2 — Testing"
+echo "------------------------------------------------------------"
+
+pixi run terratorch test \
+    --config "$RUN_CONFIG" \
+    --ckpt_path "$CKPT"
+
+if [ $? -ne 0 ]; then
+    echo "ERROR: Testing failed. Predictions and summary will be skipped."
+    exit 1
+fi
+echo "Testing complete."
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 3 — PREDICTIONS
+# Runs inference on the test split (defined in the config under predict_data_root
+# and predict_split) and saves one GeoTIFF per scene into predictions/.
+#
+# Relationship to the TerraMind notebook:
+#   The notebook does the same thing in Python:
+#     model = SemanticSegmentationTask.load_from_checkpoint(...)
+#     outputs = model(images)
+#     preds = torch.argmax(outputs.output, dim=1)
+#   terratorch predict wraps that exact logic into a CLI command.
+#   Use the notebook for interactive exploration; use the CLI for HPC jobs.
+#
+# If this step fails, training and test results are unaffected.
+# Re-run predictions manually in an interactive session if needed:
+#   pixi run terratorch predict --config $RUN_CONFIG --ckpt_path $CKPT --predict_output_dir $RUN_DIR/predictions
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo ">>> STEP 3 — Predictions"
+echo "------------------------------------------------------------"
+
+pixi run terratorch predict \
+    --config "$RUN_CONFIG" \
+    --ckpt_path "$CKPT" \
+    --predict_output_dir "$RUN_DIR/predictions"
+
+if [ $? -ne 0 ]; then
+    echo "WARNING: Prediction step failed."
+    echo "Training and test results are still valid."
+    echo "Check $RUN_DIR/predictions/ — it may be empty or incomplete."
+else
+    echo "Predictions saved to: $RUN_DIR/predictions/"
+    echo "Files generated:"
+    ls "$RUN_DIR/predictions/" 2>/dev/null || echo "  (folder is empty — see note above)"
+fi
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# STEP 4 — METRICS SUMMARY
+# Reads metrics.csv and prints a formatted summary into this job log.
+# This means your mIoU comparison to the published result appears at the
+# end of the log without needing to run anything else afterwards.
+# ════════════════════════════════════════════════════════════════════════════
+echo ""
+echo ">>> STEP 4 — Results summary"
+echo "------------------------------------------------------------"
+
+pixi run python experiments/read_metrics.py "$RUN_DIR"
+
+
+# ── Final instructions printed to the log ────────────────────────────────────
+echo ""
+echo "============================================================"
+echo "All steps finished: $(date)"
+echo ""
+echo "Output folder: $RUN_DIR"
+echo "  run_config.yaml          — exact config used for this run"
+echo "  metrics.csv              — all metrics per epoch"
+echo "  checkpoints/best.ckpt   — best model weights"
+echo "  predictions/             — one GeoTIFF per test scene"
+echo ""
+echo "To make visualisation figures:"
+echo "  Start an interactive session:"
+echo "    qsub -I -l select=1:ncpus=2:mem=8gb -l walltime=01:00:00"
+echo "  Then run:"
+echo "    cd $PBS_O_WORKDIR"
+echo "    export PATH=\"\$HOME/.pixi/bin:\$PATH\""
+echo "    pixi run python experiments/visualise_prediction.py $RUN_DIR"
+echo "============================================================"

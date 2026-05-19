@@ -1,124 +1,238 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# TerraMind v1 Base — Sen1Floods11 benchmark config
+#
+# What this file is:
+#   All settings for one experiment. TerraTorch reads this file and builds
+#   the model, data pipeline, training loop, and logging from it.
+#
+# How to use:
+#   terratorch fit  --config configs/terramind_v1_base_sen1floods11.yaml
+#   terratorch test --config configs/terramind_v1_base_sen1floods11.yaml --ckpt_path output/sen1floods11_terramind_base/checkpoints/best.ckpt
+#
+# For a new experiment (e.g. BurnScars):
+#   1. Copy this file to:  configs/terramind_v1_base_burnscars.yaml
+#   2. Update the data paths and default_root_dir inside that copy
+#   3. Point your PBS scripts at the new config file
+# ─────────────────────────────────────────────────────────────────────────────
+
 # lightning.pytorch==2.1.1
-seed_everything: 42
+seed_everything: 42   # fixes random seed so results are reproducible
+
 trainer:
-  accelerator: auto
-  strategy: auto
-  devices: auto
-  num_nodes: 1
-  precision: 16-mixed
-  logger: true
+  # ── Hardware ──────────────────────────────────────────────────────────────
+  accelerator: auto   # automatically uses GPU if available
+  strategy: auto      # automatically chooses single-GPU or multi-GPU strategy
+  devices: auto       # uses however many GPUs are available
+  num_nodes: 1        # single machine (one HPC node)
+  precision: 16-mixed # uses 16-bit floating point where safe — speeds up training
+                      # and halves GPU memory use without hurting accuracy
+
+  # ── Output location ───────────────────────────────────────────────────────
+  # All output — checkpoints, logs, metrics — goes here.
+  # Change this to a new name for each new dataset/experiment.
+  # After a run finishes, rename this folder with the date to archive it:
+  #   mv output/sen1floods11_terramind_base output/sen1floods11_terramind_base_20260407
+  default_root_dir: output/sen1floods11_terramind_base/
+
+  # ── Logging ───────────────────────────────────────────────────────────────
+  # Two loggers run at the same time:
+  #   1. TensorBoardLogger: writes a binary events file (viewable with tensorboard)
+  #   2. CSVLogger: writes a plain-text metrics.csv you can open in Excel or Python
+  # Both save into the same folder as default_root_dir above.
+  # name: "" and version: "" prevent extra subfolders being created.
+  logger:
+    - class_path: lightning.pytorch.loggers.TensorBoardLogger
+      init_args:
+        save_dir: output/sen1floods11_terramind_base/
+        name: ""
+        version: ""
+    - class_path: lightning.pytorch.loggers.CSVLogger
+      init_args:
+        save_dir: output/sen1floods11_terramind_base/
+        name: ""
+        version: ""
+
+  # ── Callbacks ─────────────────────────────────────────────────────────────
+  # Callbacks are optional extra behaviours that run during training.
   callbacks:
+
+    # Shows a live progress bar in the terminal during training
     - class_path: RichProgressBar
+
+    # Prints the learning rate to the log after each epoch
+    # (useful to see when ReduceLROnPlateau kicks in and reduces the rate)
     - class_path: LearningRateMonitor
       init_args:
         logging_interval: epoch
-  max_epochs: 100
-  log_every_n_steps: 5
-  default_root_dir: output/terramind_base_sen1floods11/
 
+    # Saves model checkpoints to output/sen1floods11_terramind_base/checkpoints/
+    # Two files are saved:
+    #   best.ckpt — the weights from the epoch with the highest val/mIoU
+    #   last.ckpt — the weights from the very last epoch
+    # Using a fixed name "best" means the test script always knows where to look.
+    - class_path: ModelCheckpoint
+      init_args:
+        monitor: val/mIoU  # watch this metric to decide what "best" means
+        mode: max          # higher val/mIoU is better
+        save_top_k: 1      # only keep the single best checkpoint (saves disk space)
+        save_last: true    # also always save the last epoch (useful for resuming)
+        filename: best     # saves as: checkpoints/best.ckpt
+        verbose: true      # prints a message each time a new best is saved
+
+  # ── Training length ───────────────────────────────────────────────────────
+  max_epochs: 100          # train for 100 epochs (matches the published paper)
+  log_every_n_steps: 5     # write a log entry every 5 training steps
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA
+# Tells TerraTorch where to find the dataset files and how to load them.
+# ─────────────────────────────────────────────────────────────────────────────
 data:
   class_path: terratorch.datamodules.GenericMultiModalDataModule
   init_args:
-    task: 'segmentation'
-    batch_size: 8
-    num_workers: 4
+    task: 'segmentation'     # we are doing pixel-wise class prediction
+    batch_size: 8            # 8 images per training step — reduce if you run out of GPU memory
+    num_workers: 4           # 4 background processes to load data in parallel
+
+    # The two satellite modalities we use as input
     modalities:
-      - S2L1C
-      - S1GRD
+      - S2L1C   # Sentinel-2 Level 1C: 13-band multispectral optical imagery
+      - S1GRD   # Sentinel-1 GRD: 2-band SAR (radar) imagery
+
+    # Which modality and bands to use for the optional RGB preview during logging
     rgb_modality: S2L1C
     rgb_indices:
-      - 3
-      - 2
-      - 1
+      - 3   # Red band (band index 3 in S2L1C, 0-indexed)
+      - 2   # Green band
+      - 1   # Blue band
+
+    # ── Dataset file paths ────────────────────────────────────────────────
+    # These paths are relative to wherever you run terratorch from (the terramind root).
+    # Train, validation, and test all use the same hand-labelled data folder
+    # (the split into train/val/test is controlled by the split .txt files below).
     train_data_root:
       S2L1C: sen1floods11_v1.1/data/S2L1CHand
       S1GRD: sen1floods11_v1.1/data/S1GRDHand
     train_label_data_root: sen1floods11_v1.1/data/LabelHand
+
     val_data_root:
       S2L1C: sen1floods11_v1.1/data/S2L1CHand
       S1GRD: sen1floods11_v1.1/data/S1GRDHand
     val_label_data_root: sen1floods11_v1.1/data/LabelHand
+
     test_data_root:
       S2L1C: sen1floods11_v1.1/data/S2L1CHand
       S1GRD: sen1floods11_v1.1/data/S1GRDHand
     test_label_data_root: sen1floods11_v1.1/data/LabelHand
 
+    # ── Split files ───────────────────────────────────────────────────────
+    # Each .txt file lists which scenes belong to that split.
+    # This defines the official train/val/test division for reproducibility.
     train_split: sen1floods11_v1.1/splits/flood_train_data.txt
-    val_split: sen1floods11_v1.1/splits/flood_valid_data.txt
-    test_split: sen1floods11_v1.1/splits/flood_test_data.txt
+    val_split:   sen1floods11_v1.1/splits/flood_valid_data.txt
+    test_split:  sen1floods11_v1.1/splits/flood_test_data.txt
 
-    # Adjust file suffixes if required or delete them
+    # ── File name patterns ────────────────────────────────────────────────
+    # Tells TerraTorch how to find the image and label files by filename pattern.
     image_grep:
       S2L1C: "*_S2Hand.tif"
       S1GRD: "*_S1Hand.tif"
     label_grep: "*_LabelHand.tif"
 
-    no_label_replace: -1
-    no_data_replace: 0
-    num_classes: 2
+    # ── Missing data handling ─────────────────────────────────────────────
+    no_label_replace: -1   # pixels with no label are set to -1 (ignored during loss calculation)
+    no_data_replace: 0     # pixels with no image data are filled with 0
+    num_classes: 2         # two output classes: Others and Flood
 
-    # TerraMind standardization values
+    # ── Normalisation statistics ──────────────────────────────────────────
+    # Pre-computed mean and standard deviation for each modality.
+    # These are the official TerraMind values — do not change them.
+    # They are used to standardise input values to roughly zero mean and unit variance.
     means:
       S2L1C: [2357.089, 2137.385, 2018.788, 2082.986, 2295.651, 2854.537, 3122.849, 3040.560, 3306.481, 1473.847, 506.070, 2472.825, 1838.929]
       S2L2A: [1390.458, 1503.317, 1718.197, 1853.910, 2199.100, 2779.975, 2987.011, 3083.234, 3132.220, 3162.988, 2424.884, 1857.648]
       S1GRD: [-12.599, -20.293]
       S1RTC: [-10.93, -17.329]
-      RGB: [87.271, 80.931, 66.667]
-      DEM: [670.665]
+      RGB:   [87.271, 80.931, 66.667]
+      DEM:   [670.665]
 
     stds:
       S2L1C: [1624.683, 1675.806, 1557.708, 1833.702, 1823.738, 1733.977, 1732.131, 1679.732, 1727.26, 1024.687, 442.165, 1331.411, 1160.419]
       S2L2A: [2106.761, 2141.107, 2038.973, 2134.138, 2085.321, 1889.926, 1820.257, 1871.918, 1753.829, 1797.379, 1434.261, 1334.311]
       S1GRD: [5.195, 5.890]
       S1RTC: [4.391, 4.459]
-      RGB: [58.767, 47.663, 42.631]
-      DEM: [951.272]
+      RGB:   [58.767, 47.663, 42.631]
+      DEM:   [951.272]
 
+    # ── Data augmentation ─────────────────────────────────────────────────
+    # Applied only during training. Makes the model more robust by showing
+    # it the same image flipped and rotated in different ways.
     train_transform:
-      - class_path: albumentations.D4  # Random flip and rotations
-      - class_path: albumentations.pytorch.transforms.ToTensorV2
+      - class_path: albumentations.D4                            # random 90° rotations and flips
+      - class_path: albumentations.pytorch.transforms.ToTensorV2 # converts numpy arrays to PyTorch tensors
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MODEL
+# Defines the neural network architecture.
+# ─────────────────────────────────────────────────────────────────────────────
 model:
   class_path: terratorch.tasks.SemanticSegmentationTask
   init_args:
-    model_factory: EncoderDecoderFactory
-    model_args:
-      backbone: terramind_v1_base
-      backbone_pretrained: true
-      backbone_modalities:
-        - S2L1C
-        - S1GRD
-      backbone_merge_method: mean
+    model_factory: EncoderDecoderFactory   # standard encoder → neck → decoder pattern
 
+    model_args:
+      # ── Backbone (encoder) ──────────────────────────────────────────────
+      backbone: terramind_v1_base           # the TerraMind Vision Transformer backbone
+      backbone_pretrained: true             # load the pre-trained weights (essential)
+      backbone_modalities:
+        - S2L1C                             # backbone receives both modalities as input
+        - S1GRD
+      backbone_merge_method: mean           # fuse S2 and S1 features by averaging them
+
+      # ── Neck (feature processing between backbone and decoder) ──────────
+      # The backbone outputs a sequence of tokens (like words in a sentence).
+      # The neck converts those tokens back into 2D image-like feature maps
+      # that the decoder can work with.
       necks:
         - name: SelectIndices
-          indices: [2, 5, 8, 11]  # tiny, small, or base version
-#          indices: [5, 11, 17, 23]  # large version
+          indices: [2, 5, 8, 11]           # pick 4 evenly-spaced layers from the 12-layer base model
+                                            # (change to [5, 11, 17, 23] for the large model)
         - name: ReshapeTokensToImage
-          remove_cls_token: False
-        - name: LearnedInterpolateToPyramidal
+          remove_cls_token: False           # keep the class token (TerraMind uses it)
+        - name: LearnedInterpolateToPyramidal  # resize features to a pyramid of scales
 
-      decoder: UNetDecoder
-      decoder_channels: [512, 256, 128, 64]
+      # ── Decoder ────────────────────────────────────────────────────────
+      decoder: UNetDecoder                  # U-Net style decoder: progressively upsamples to full resolution
+      decoder_channels: [512, 256, 128, 64] # number of feature channels at each decoder stage
 
-      head_dropout: 0.1
-      num_classes: 2
-    loss: dice
-    ignore_index: -1
-    freeze_backbone: false
-    freeze_decoder: false
+      head_dropout: 0.1   # 10% dropout before the final classification layer (reduces overfitting)
+      num_classes: 2       # output: 2 channels, one score per class per pixel
+
+    loss: dice             # Dice loss — well-suited for class-imbalanced segmentation tasks
+    ignore_index: -1       # pixels labelled -1 (no data) are excluded from the loss calculation
+    freeze_backbone: false # allow the backbone weights to update during training
+    freeze_decoder: false  # allow the decoder weights to update during training
+
     class_names:
-      - Others
-      - Flood
+      - Others   # class 0: everything that is not flood
+      - Flood    # class 1: flood water
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTIMISER AND LEARNING RATE SCHEDULE
+# Controls how the model weights are updated each training step.
+# ─────────────────────────────────────────────────────────────────────────────
 optimizer:
   class_path: torch.optim.AdamW
   init_args:
-    lr: 2.e-5
+    lr: 2.e-5   # learning rate: how large each weight update step is
+                # 2e-5 is a small value appropriate for fine-tuning a pre-trained model
+
 lr_scheduler:
   class_path: ReduceLROnPlateau
   init_args:
-    monitor: val/loss
-    factor: 0.5
-    patience: 5
-
+    monitor: val/loss   # watch the validation loss
+    factor: 0.5         # when triggered, multiply the learning rate by 0.5 (halve it)
+    patience: 5         # trigger after 5 epochs with no improvement in val/loss

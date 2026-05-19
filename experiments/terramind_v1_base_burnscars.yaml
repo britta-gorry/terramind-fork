@@ -1,0 +1,182 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# TerraMind v1 Base — HLS BurnScars
+#
+# This config is as close as practical to the original TerraMind repo config,
+# with three additions clearly marked:
+#   [ADDED] ModelCheckpoint   — saves the best checkpoint by name
+#   [ADDED] CSVLogger         — writes a human-readable metrics.csv
+#   [ADDED] predict section   — enables terratorch predict without CLI overrides
+#
+# The string __OUTPUT_DIR__ is a placeholder. The run script replaces it with
+# a timestamped path (e.g. output/sen1floods11_base_20260407_2038) and saves
+# the result as run_config.yaml inside that folder before calling terratorch.
+# You never edit that value here manually.
+#
+# To run a different backbone:
+#   Change backbone: terramind_v1_base  →  terramind_v1_large
+#   Change SelectIndices: [2, 5, 8, 11] →  [5, 11, 17, 23]
+# ─────────────────────────────────────────────────────────
+
+# lightning.pytorch==2.1.1
+seed_everything: 42
+trainer:
+  accelerator: auto
+  strategy: auto
+  devices: auto
+  num_nodes: 1
+  precision: 16-mixed
+
+  # All output for this run lands here.
+  # __OUTPUT_DIR__ is replaced by the run script — do not edit this line.
+  default_root_dir: __OUTPUT_DIR__
+
+  logger:
+    # TensorBoard logger — same as the original TerraMind config (logger: true)
+    # View with: tensorboard --logdir output/  (requires port-forward on HPC)
+    - class_path: lightning.pytorch.loggers.TensorBoardLogger
+      init_args:
+        save_dir: __OUTPUT_DIR__
+        name: ""      # prevents an extra subfolder being created
+        version: ""   # prevents auto-incrementing version_0, version_1 etc.
+
+    # [ADDED] CSVLogger — writes metrics.csv so results are readable without TensorBoard
+    - class_path: lightning.pytorch.loggers.CSVLogger
+      init_args:
+        save_dir: __OUTPUT_DIR__
+        name: ""
+        version: ""
+
+  callbacks:
+    - class_path: RichProgressBar
+    
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch
+  
+    # [ADDED] ModelCheckpoint — saves best.ckpt (highest val/mIoU) and last.ckpt
+    # Without this, Lightning only saves the last epoch. The fixed filename
+    # "best" means all downstream steps can always find the checkpoint.
+    - class_path: ModelCheckpoint
+      init_args:
+        monitor: val/mIoU   # the exact metric name TerraTorch logs
+        mode: max
+        save_top_k: 1       # keep only the single best (saves disk space)
+        save_last: true
+        filename: best
+        verbose: true       # prints a line each time a new best is found
+  
+  max_epochs: 100
+  log_every_n_steps: 5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA
+# ─────────────────────────────────────────────────────────────────────────────
+data:
+  class_path: terratorch.datamodules.GenericNonGeoSegmentationDataModule
+  init_args:
+    batch_size: 8
+    num_workers: 2
+    dataset_bands:  # Dataset bands
+      - BLUE
+      - GREEN
+      - RED
+      - NIR_NARROW
+      - SWIR_1
+      - SWIR_2
+    rgb_indices:
+      - 2
+      - 1
+      - 0
+    train_data_root: hls_burn_scars/data
+    val_data_root: hls_burn_scars/data
+    test_data_root: hls_burn_scars/data
+    train_split: hls_burn_scars/splits/train.txt
+    val_split: hls_burn_scars/splits/val.txt
+    test_split: hls_burn_scars/splits/test.txt
+
+    # [ADDED] Predict section — same images as the test split.
+    # terratorch predict uses these instead of test_data_root.
+    # We run predictions on the test scenes so we can compare them to ground truth.
+    predict_data_root: hls_burn_scars/data
+
+    img_grep: "*_merged.tif"
+    label_grep: "*.mask.tif"
+    # Dataset stats
+    means:
+      -  0.033349706741586264
+      -  0.05701185520536176
+      -  0.05889748132001316
+      -  0.2323245113436119
+      -  0.1972854853760658
+      -  0.11944914225186566
+    stds:
+      -  0.02269135568823774
+      -  0.026807560223070237
+      -  0.04004109844362779
+      -  0.07791732423672691
+      -  0.08708738838140137
+      -  0.07241979477437814
+    num_classes: 2
+    train_transform:
+      - class_path: albumentations.D4
+      - class_path: albumentations.pytorch.transforms.ToTensorV2
+    no_data_replace: 0
+    no_label_replace: -1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MODEL
+# ─────────────────────────────────────────────────────────────────────────────
+model:
+  class_path: terratorch.tasks.SemanticSegmentationTask
+  init_args:
+    model_factory: EncoderDecoderFactory
+    model_args:
+      backbone: terramind_v1_base
+      backbone_pretrained: true
+      backbone_modalities:
+        - S2L2A
+      backbone_bands: # Select subset of pre-trained bands
+        S2L2A:
+          - BLUE
+          - GREEN
+          - RED
+          - NIR_NARROW
+          - SWIR_1
+          - SWIR_2
+
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]  # tiny, small, or base version
+#          indices: [5, 11, 17, 23]  # large version
+        - name: ReshapeTokensToImage
+          remove_cls_token: False
+        - name: LearnedInterpolateToPyramidal
+
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+
+      head_dropout: 0.1
+      num_classes: 2
+    loss: dice
+    ignore_index: -1
+    freeze_backbone: false
+    freeze_decoder: false
+    class_names:
+      - Others
+      - Burned
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTIMISER
+# ─────────────────────────────────────────────────────────────────────────────
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 1.e-4
+    weight_decay: 0.1
+lr_scheduler:
+  class_path: ReduceLROnPlateau
+  init_args:
+    monitor: val/loss
+    factor: 0.5
+    patience: 5
+
