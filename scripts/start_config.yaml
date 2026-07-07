@@ -9,11 +9,11 @@
 # EXPERIMENT SETUP
 # ─────────────────────────────────────────────────────────────────────────────
 setup:
-  name:       "base_tim_burn"
-  aim:        "Test TerraMind with TiM given band adaptation"
-  dataset:    "burnscars"
-  backbone:   "terramind_v1_base_tim"
-  run_notes:  "Testing various experiments with band padding for burnscars."
+  name:       "base_flood"
+  aim:        "Test TerraMind environment"
+  dataset:    "sen1floods11"
+  backbone:   "terramind_v1_base"
+  run_notes:  "Testing environment conditions on S11 RTX Pro 6000 PC."
   #  Add any additional notes about the experiment conditions here
       # Next plan to compare base vs large, no tim vs tim, flood vs burn:
       # ----------------------------------------------------
@@ -30,14 +30,14 @@ setup:
       # ----------------------------------------------------
   # ── Steps  (True = run, False = skip) ────────────────────────────────────────
   steps:
-    generate:  true
+    generate:  false
     fit:       true
     test:      true   # blocked automatically when label_n = 0
     predict:   true
     visualise: true
   # ── Checkpoint ───────────────────────────────────────────────────────────────
   overrides:
-    max_epochs: 100 # one epoch to check if it runs all the way through without labels
+    max_epochs: 1 # one epoch to check if it runs all the way through without labels
     freeze_backbone:  false
     freeze_decoder:   false
     checkpoint:       null
