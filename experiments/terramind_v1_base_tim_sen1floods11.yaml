@@ -1,11 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # TerraMind v1 Base — Sen1Floods11
+# COMMENTED OUT ANY LINE POINTING TO LABELS TO ATTEMPT ZERO-SHOT TIM
 #
 # This config is as close as practical to the original TerraMind repo config,
 # with three additions clearly marked:
 #   [ADDED] ModelCheckpoint   — saves the best checkpoint by name
 #   [ADDED] CSVLogger         — writes a human-readable metrics.csv
-#   [ADDED] Predict section   — enables terratorch predict without CLI overrides
+#   [ADDED] predict section   — enables terratorch predict without CLI overrides
 #
 # The string __OUTPUT_DIR__ is a placeholder. The run script replaces it with
 # a timestamped path (e.g. output/sen1floods11_base_20260407_2038) and saves
@@ -37,7 +38,7 @@ trainer:
   default_root_dir: __OUTPUT_DIR__
 
   logger:
-    # TensorBoard logger
+    # TensorBoard logger — same as the original TerraMind config (logger: true)
     # View with: tensorboard --logdir output/  (requires port-forward on HPC)
     - class_path: lightning.pytorch.loggers.TensorBoardLogger
       init_args:
@@ -45,7 +46,7 @@ trainer:
         name: ""      # prevents an extra subfolder being created
         version: ""   # prevents auto-incrementing version_0, version_1 etc.
 
-    # CSVLogger — writes metrics.csv so results are readable without TensorBoard
+    # [ADDED] CSVLogger — writes metrics.csv so results are readable without TensorBoard
     - class_path: lightning.pytorch.loggers.CSVLogger
       init_args:
         save_dir: __OUTPUT_DIR__
@@ -59,7 +60,7 @@ trainer:
       init_args:
         logging_interval: epoch   # print LR once per epoch, not every step
 
-    # ModelCheckpoint — saves best.ckpt (highest val/mIoU) and last.ckpt
+    # [ADDED] ModelCheckpoint — saves best.ckpt (highest val/mIoU) and last.ckpt
     # Without this, Lightning only saves the last epoch. The fixed filename
     # "best" means all downstream steps can always find the checkpoint.
     - class_path: ModelCheckpoint
@@ -83,7 +84,7 @@ data:
   init_args:
     task: 'segmentation'
     batch_size: 8
-    num_workers: 4
+    num_workers: 8
 
     modalities:
       - S2L1C   # Sentinel-2 Level 1C: 13-band optical
@@ -113,10 +114,13 @@ data:
     val_split:   data/sen1floods11_v1.1/splits/flood_valid_data.txt
     test_split:  data/sen1floods11_v1.1/splits/flood_test_data.txt
 
-    # ── Predict ────────────────────────────────────────────────────────────────
+    # [ADDED] Predict section — same images as the test split.
+    # terratorch predict uses these instead of test_data_root.
+    # We run predictions on the test scenes so we can compare them to ground truth.
     predict_data_root:
       S2L1C: data/sen1floods11_v1.1/data/S2L1CHand
       S1GRD: data/sen1floods11_v1.1/data/S1GRDHand
+    # predict_split: data/sen1floods11_v1.1/splits/flood_test_data.txt
 
     image_grep:
       S2L1C: "*_S2Hand.tif"
@@ -127,7 +131,7 @@ data:
     no_data_replace: 0
     num_classes: 2
 
-    # TerraMind official normalisation statistics
+    # TerraMind official normalisation statistics — do not change
     means:
       S2L1C: [2357.089, 2137.385, 2018.788, 2082.986, 2295.651, 2854.537, 3122.849, 3040.560, 3306.481, 1473.847, 506.070, 2472.825, 1838.929]
       S2L2A: [1390.458, 1503.317, 1718.197, 1853.910, 2199.100, 2779.975, 2987.011, 3083.234, 3132.220, 3162.988, 2424.884, 1857.648]
@@ -158,17 +162,19 @@ model:
     model_factory: EncoderDecoderFactory
 
     model_args:
-      backbone: terramind_v1_base
+      backbone: terramind_v1_base_tim
       backbone_pretrained: true
       backbone_modalities:
         - S2L1C
         - S1GRD
+      backbone_tim_modalities:
+        - LULC
       backbone_merge_method: mean
 
       necks:
         - name: SelectIndices
           indices: [2, 5, 8, 11]   # base model has 12 layers — sample 4 evenly
-                                   # large model: change to [5, 11, 17, 23]
+                                    # large model: change to [5, 11, 17, 23]
         - name: ReshapeTokensToImage
           remove_cls_token: False
         - name: LearnedInterpolateToPyramidal

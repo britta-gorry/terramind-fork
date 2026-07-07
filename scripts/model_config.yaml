@@ -1,0 +1,84 @@
+# ──────────────────────────────────────────────────────────────────
+# TerraMind v1 Model Config
+# 
+# Data information is loaded from the datasets_config.yaml file.
+# ──────────────────────────────────────────────────────────────────
+
+# lightning.pytorch==2.1.1
+seed_everything: 42
+
+model: # ── MODEL ──────────────────────────────────────────────────
+  class_path: terratorch.tasks.SemanticSegmentationTask
+  init_args:
+    model_factory: EncoderDecoderFactory
+    model_args:
+      backbone: terramind_v1_base
+      backbone_pretrained: true
+      necks:
+        - name: SelectIndices
+          indices: [2, 5, 8, 11]   # base [2, 5, 8, 11], large: [5, 11, 17, 23]
+        - name: ReshapeTokensToImage
+          remove_cls_token: False
+        - name: LearnedInterpolateToPyramidal
+      decoder: UNetDecoder
+      decoder_channels: [512, 256, 128, 64]
+      head_dropout: 0.1
+      num_classes: 2
+    loss: dice
+    ignore_index: -1
+    freeze_backbone: false
+    freeze_decoder: false
+
+trainer: # ── TRAINER ───────────────────────────────────────────────
+  accelerator: auto
+  strategy: auto
+  devices: auto
+  num_nodes: 1
+  precision: 16-mixed
+  # All output for this run lands here.
+  # __OUTPUT_DIR__ replaced by the run script — do not edit this line.
+  default_root_dir: __OUTPUT_DIR__
+  logger:
+    # TensorBoard logger
+    # View with: tensorboard --logdir output/  (requires port-forward on HPC)
+    - class_path: lightning.pytorch.loggers.TensorBoardLogger
+      init_args:
+        save_dir: __OUTPUT_DIR__
+        name: ""      # prevents an extra subfolder being created
+        version: ""   # prevents auto-incrementing version_0, version_1 etc.
+    # CSVLogger — writes metrics.csv so results are readable without TensorBoard
+    - class_path: lightning.pytorch.loggers.CSVLogger
+      init_args:
+        save_dir: __OUTPUT_DIR__
+        name: ""
+        version: ""
+  callbacks:
+    - class_path: RichProgressBar
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: epoch   # print LR once per epoch, not every step
+    # ModelCheckpoint — saves best.ckpt (highest val/mIoU) and last.ckpt
+    # Without this, Lightning only saves the last epoch. The fixed filename
+    # "best" means all downstream steps can always find the checkpoint.
+    - class_path: ModelCheckpoint
+      init_args:
+        monitor: val/mIoU   # the exact metric name TerraTorch logs
+        mode: max
+        save_top_k: 1       # keep only the single best (saves disk space)
+        save_last: true
+        filename: best
+        verbose: false       # prints a line each time a new best is found
+  max_epochs: 100
+  log_every_n_steps: 5
+
+optimizer: # ── OPTIMIZER ───────────────────────────────────────────
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 2.e-5
+
+lr_scheduler: # ── LR SCHEDULER ─────────────────────────────────────
+  class_path: ReduceLROnPlateau
+  init_args:
+    monitor: val/loss
+    factor: 0.5
+    patience: 5

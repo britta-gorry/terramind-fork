@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 inspect_geo_data.py
 ===============

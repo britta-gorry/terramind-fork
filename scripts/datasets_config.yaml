@@ -1,0 +1,375 @@
+# ────────────────────────────────────────────────────────────────────────────
+# DATASETS
+#
+# This file contains metadata and notes for all datasets used in
+# TerraMind experiments. 
+# ─────────────────────────────────────────────────────────────────────────────
+
+sen1floods11: # ── SEN1FLOODS11 ───────────────────────────────────────────────
+  dataset_notes:
+    name: "Sen1Floods11"
+    path: data/sen1floods11_v1.1
+    # ── Dataset Notes ────────────────────────────────────────────────────────
+    #  Count images from terminal:          ls data/sen1floods11_v1.1/data/S2L1CHand/*.tif | wc -l
+    #  Check splits from text file:         wc -l data/sen1floods11_v1.1/splits/flood_train_data.txt
+    #  Get modality details:                pixi run gdalinfo data/sen1floods11_v1.1/data/S2L1CHand/Bolivia_23014_S2Hand.tif
+    images_num: 446
+    label_num: 446
+    train_num: 252
+    test_num: 90
+    val_num: 89
+    modalities:
+      - name: "S2L1C"
+        bands: "13 (B1-B12 + CLD)"
+        data_type: "Int16"
+        resolution: "512x512 px"
+        crs: "WGS 84"
+      - name: "S1GRD"
+        bands: "2 (VV, VH)"
+        data_type: "Float32"
+        resolution: "512x512 px"
+        crs: "WGS 84"
+  data:
+  # ── Data Config ────────────────────────────────────────────────────────────
+  # This exact block is needed to load into the model config before
+  # running any TerraMind experiment. The run script copies this block
+  # into the run_config and stores it in the output.
+    class_path: terratorch.datamodules.GenericMultiModalDataModule
+    init_args:
+      task: 'segmentation'
+      batch_size: 8
+      num_workers: 4
+      modalities:
+        - S2L1C   # Sentinel-2 Level 1C: 13-band optical
+        - S1GRD   # Sentinel-1 GRD: 2-band SAR (radar)
+      # RGB preview bands (for plots and logging). New dict format — rgb_modality is deprecated.
+      rgb_indices:
+        S2L1C: [3, 2, 1]   # Red, Green, Blue (0-indexed band positions)
+      # ── Train ──────────────────────────────────────────────────────────────
+      train_data_root:
+        S2L1C: data/sen1floods11_v1.1/data/S2L1CHand
+        S1GRD: data/sen1floods11_v1.1/data/S1GRDHand
+      train_label_data_root: data/sen1floods11_v1.1/data/LabelHand
+      # ── Val ────────────────────────────────────────────────────────────────
+      val_data_root:
+        S2L1C: data/sen1floods11_v1.1/data/S2L1CHand
+        S1GRD: data/sen1floods11_v1.1/data/S1GRDHand
+      val_label_data_root: data/sen1floods11_v1.1/data/LabelHand
+      # ── Test ───────────────────────────────────────────────────────────────
+      test_data_root:
+        S2L1C: data/sen1floods11_v1.1/data/S2L1CHand
+        S1GRD: data/sen1floods11_v1.1/data/S1GRDHand
+      test_label_data_root: data/sen1floods11_v1.1/data/LabelHand
+      # ── Splits ─────────────────────────────────────────────────────────────
+      train_split: data/sen1floods11_v1.1/splits/flood_train_data.txt
+      val_split:   data/sen1floods11_v1.1/splits/flood_valid_data.txt
+      test_split:  data/sen1floods11_v1.1/splits/flood_test_data.txt
+      # ── Predict ────────────────────────────────────────────────────────────
+      predict_data_root:
+        S2L1C: data/sen1floods11_v1.1/data/S2L1CHand
+        S1GRD: data/sen1floods11_v1.1/data/S1GRDHand
+      image_grep:
+        S2L1C: "*_S2Hand.tif"
+        S1GRD: "*_S1Hand.tif"
+      label_grep: "*_LabelHand.tif"     # comment out to test inference without labels
+      allow_substring_file_names: True
+      no_label_replace: -1
+      no_data_replace: 0
+      num_classes: 2
+      # TerraMind official normalisation statistics
+      means:
+        S2L1C: [2357.089, 2137.385, 2018.788, 2082.986, 2295.651, 2854.537, 3122.849, 3040.560, 3306.481, 1473.847, 506.070, 2472.825, 1838.929]
+        S2L2A: [1390.458, 1503.317, 1718.197, 1853.910, 2199.100, 2779.975, 2987.011, 3083.234, 3132.220, 3162.988, 2424.884, 1857.648]
+        S1GRD: [-12.599, -20.293]
+        S1RTC: [-10.93, -17.329]
+        RGB:   [87.271, 80.931, 66.667]
+        DEM:   [670.665]
+      stds:
+        S2L1C: [1624.683, 1675.806, 1557.708, 1833.702, 1823.738, 1733.977, 1732.131, 1679.732, 1727.26, 1024.687, 442.165, 1331.411, 1160.419]
+        S2L2A: [2106.761, 2141.107, 2038.973, 2134.138, 2085.321, 1889.926, 1820.257, 1871.918, 1753.829, 1797.379, 1434.261, 1334.311]
+        S1GRD: [5.195, 5.890]
+        S1RTC: [4.391, 4.459]
+        RGB:   [58.767, 47.663, 42.631]
+        DEM:   [951.272]
+      train_transform:
+        - class_path: albumentations.D4
+        - class_path: albumentations.pytorch.transforms.ToTensorV2
+  model:
+  # ── Model Config ────────────────────────────────────────────────────────────
+  # This block is needed to load into the model config before
+  # running any TerraMind experiment. The run script copies this block
+  # into the run_config and stores it in the output.
+    init_args:
+      model_args:
+        backbone_modalities:
+          - S2L1C
+          - S1GRD
+        backbone_tim_modalities:
+          - LULC
+        backbone_merge_method: mean
+      class_names:
+        - Others   # class 0
+        - Flood    # class 1
+  generation:
+  # ── Generation ──────────────────────────────────────────────────────────────
+  # This block contains information needed to run generate_pseudolabels.py
+  # for generating LULC as pseudolabels.
+    modality: S2L1C
+    generate_data_root: data/sen1floods11_v1.1/data/S2L1CHand
+    generate_split: data/sen1floods11_v1.1/splits/flood_train_data.txt # using train split for now
+    img_glob: "*_S2Hand.tif"
+
+burnscars: # ── HLS BURNSCARS ────────────────────────────────────────────────
+  dataset_notes:
+    name: "burnscars"
+    path: data/hls_burn_scars
+    # ── Dataset Notes ───────────────────────────────────────────────────────
+    #  Count images from terminal:          ls data/hls_burn_scars/data/*_merged.tif | wc -l
+    #  Count labels from terminal:          ls data/hls_burn_scars/data/*mask.tif | wc -l
+    #  Check splits from text file:         wc -l data/hls_burn_scars/splits/train.txt
+    #  Get modality details:                pixi run gdalinfo data/hls_burn_scars/data/subsetted_512x512_HLS.S30.T10SEH.2018190.v1.4_merged.tif
+    images_num: 804
+    label_num: 804
+    train_num: 524
+    test_num: 120
+    val_num: 160
+    modalities:
+      - name: "S2L2A"
+        bands: "6 (BLUE, GREEN, RED, NIR_NARROW, SWIR_1, SWIR_2)"
+        data_type: "Float32"
+        resolution: "512x512 px"
+        crs: "based on WGS 84"
+  data:
+  # This exact block is needed to load into the model config before
+  # running any TerraMind experiment. The run script copies this block
+  # into the run_config and stores it in the output.
+    class_path: terratorch.datamodules.GenericNonGeoSegmentationDataModule
+    init_args:
+      batch_size: 8
+      num_workers: 2
+      dataset_bands:  # Dataset bands
+        - BLUE
+        - GREEN
+        - RED
+        - NIR_NARROW
+        - SWIR_1
+        - SWIR_2
+      rgb_indices:
+        - 2
+        - 1
+        - 0
+      # ── Train / Val / Test ──────────────────────────────────────────────────
+      train_data_root: data/hls_burn_scars/data
+      val_data_root: data/hls_burn_scars/data
+      test_data_root: data/hls_burn_scars/data
+      # ── Splits ──────────────────────────────────────────────────────────────
+      train_split: data/hls_burn_scars/splits/train.txt
+      val_split: data/hls_burn_scars/splits/val.txt
+      test_split: data/hls_burn_scars/splits/test.txt
+      # ── Predict ─────────────────────────────────────────────────────────────
+      predict_data_root: data/hls_burn_scars/data
+      # ── greps ───────────────────────────────────────────────────────────────
+      img_grep: "*_merged.tif"
+      label_grep: "*.mask.tif"
+      # Dataset stats
+      means:
+        -  0.033349706741586264
+        -  0.05701185520536176
+        -  0.05889748132001316
+        -  0.2323245113436119
+        -  0.1972854853760658
+        -  0.11944914225186566
+      stds:
+        -  0.02269135568823774
+        -  0.026807560223070237
+        -  0.04004109844362779
+        -  0.07791732423672691
+        -  0.08708738838140137
+        -  0.07241979477437814
+      num_classes: 2
+      train_transform:
+        - class_path: albumentations.D4
+        - class_path: albumentations.pytorch.transforms.ToTensorV2
+      no_data_replace: 0
+      no_label_replace: -1
+  model:
+  # ── Model Config ────────────────────────────────────────────────────────────
+  # This block is needed to load into the model config before
+  # running any TerraMind experiment. The run script copies this block
+  # into the run_config and stores it in the output.
+    init_args:
+      model_args:
+        backbone_modalities:
+          - S2L2A
+        backbone_tim_modalities:
+          - LULC
+        backbone_bands: # Select subset of pre-trained bands
+          S2L2A:
+            - BLUE
+            - GREEN
+            - RED
+            - NIR_NARROW
+            - SWIR_1
+            - SWIR_2
+      class_names:
+        - Others   # class 0
+        - Burned   # class 1
+  generation:
+  # ── Generation ──────────────────────────────────────────────────────────────
+  # This block contains information needed to run generate_pseudolabels.py
+  # for generating LULC as pseudolabels.
+    modality: S2L2A
+    generate_data_root: data/hls_burn_scars/data
+    generate_split: data/hls_burn_scars/splits/train.txt # using train split for now
+    img_glob: "*_merged.tif"
+
+burnscars12bands: # ── HLS BURNSCARS 12 BANDS ────────────────────────────────────────────────
+  dataset_notes:
+    name: "burnscars12bands"
+    path: data/hls_burn_scars
+    # ── Dataset Notes ───────────────────────────────────────────────────────
+    #  Count images from terminal:          ls data/hls_burn_scars/data/*_merged.tif | wc -l
+    #  Count labels from terminal:          ls data/hls_burn_scars/data/*mask.tif | wc -l
+    #  Check splits from text file:         wc -l data/hls_burn_scars/splits/train.txt
+    #  Get modality details:                pixi run gdalinfo data/hls_burn_scars/data/subsetted_512x512_HLS.S30.T10SEH.2018190.v1.4_merged.tif
+    images_num: 804
+    label_num: 804
+    train_num: 524
+    test_num: 120
+    val_num: 160
+    modalities:
+      - name: "S2L2A"
+        bands: "6 (BLUE, GREEN, RED, NIR_NARROW, SWIR_1, SWIR_2)"
+        data_type: "Float32"
+        resolution: "512x512 px"
+        crs: "based on WGS 84"
+  data:
+  # This exact block is needed to load into the model config before
+  # running any TerraMind experiment. The run script copies this block
+  # into the run_config and stores it in the output.
+    class_path: terratorch.datamodules.GenericNonGeoSegmentationDataModule
+    init_args:
+      batch_size: 8
+      num_workers: 2
+      dataset_bands:  # Dataset bands
+        - BLUE
+        - GREEN
+        - RED
+        - NIR_NARROW
+        - SWIR_1
+        - SWIR_2
+      rgb_indices:
+        - 2
+        - 1
+        - 0
+      # ── Train / Val / Test ──────────────────────────────────────────────────
+      train_data_root: data/hls_burn_scars/data
+      val_data_root: data/hls_burn_scars/data
+      test_data_root: data/hls_burn_scars/data
+      # ── Splits ──────────────────────────────────────────────────────────────
+      train_split: data/hls_burn_scars/splits/train.txt
+      val_split: data/hls_burn_scars/splits/val.txt
+      test_split: data/hls_burn_scars/splits/test.txt
+      # ── Predict ─────────────────────────────────────────────────────────────
+      predict_data_root: data/hls_burn_scars/data
+      # ── greps ───────────────────────────────────────────────────────────────
+      img_grep: "*_merged.tif"
+      label_grep: "*.mask.tif"
+      # Dataset stats
+      means:
+        # -  0.033349706741586264
+        # -  0.05701185520536176
+        # -  0.05889748132001316
+        # -  0.2323245113436119
+        # -  0.1972854853760658
+        # -  0.11944914225186566
+      # ── band adaptation: means must have 12 entries to match the padded
+          # 12-band output, not 6. Use TerraMind's own S2L2A pretraining
+          # means/stds for the bands you don't have real statistics for
+          # — this matches what the model expects to see in those slots.
+          # but has been SCALED TO MATCH THE 6-BAND BURNSCARS DATA RANGE.
+        - 0.03334971   # COASTAL_AEROSOL (spectrally interpolated)
+        - 0.03334971   # BLUE            (measured)
+        - 0.05701186   # GREEN           (measured)
+        - 0.05889748   # RED             (measured)
+        - 0.09358289   # RED_EDGE_1      (spectrally interpolated)
+        - 0.12393262   # RED_EDGE_2      (spectrally interpolated)
+        - 0.16121943   # RED_EDGE_3      (spectrally interpolated)
+        - 0.21238040   # NIR_BROAD       (spectrally interpolated)
+        - 0.23232451   # NIR_NARROW      (measured)
+        - 0.22856193   # WATER_VAPOR     (spectrally interpolated)
+        - 0.19728549   # SWIR_1          (measured)
+        - 0.11944914   # SWIR_2          (measured)
+      stds:
+        # -  0.02269135568823774
+        # -  0.026807560223070237
+        # -  0.04004109844362779
+        # -  0.07791732423672691
+        # -  0.08708738838140137
+        # -  0.07241979477437814
+        - 0.02269136   # COASTAL_AEROSOL (spectrally interpolated)
+        - 0.02269136   # BLUE            (measured)
+        - 0.02680756   # GREEN           (measured)
+        - 0.04004110   # RED             (measured)
+        - 0.04761634   # RED_EDGE_1      (spectrally interpolated)
+        - 0.05424468   # RED_EDGE_2      (spectrally interpolated)
+        - 0.06238807   # RED_EDGE_3      (spectrally interpolated)
+        - 0.07356156   # NIR_BROAD       (spectrally interpolated)
+        - 0.07791732   # NIR_NARROW      (measured)
+        - 0.07890203   # WATER_VAPOR     (spectrally interpolated)
+        - 0.08708739   # SWIR_1          (measured)
+        - 0.07241979   # SWIR_2          (measured)
+      num_classes: 2
+      # ── Transforms ───────────────────────────────────────────────────────────
+      # Transforms added for band_padder to adapt 6 band burnscars to 12 band S2L2A 
+      # for the pre-trained tokeniser -- this should allow TiM to work on burnscars.
+      train_transform:
+        - class_path: scripts.band_padder.PadToS2L2A12Band
+          init_args:
+            strategy: spectral      # zero | mean (scale causes error) | spectral
+            verbose: true      # set true to confirm padding on first batches
+        - class_path: albumentations.D4
+        - class_path: albumentations.pytorch.transforms.ToTensorV2
+      val_transform:
+        - class_path: scripts.band_padder.PadToS2L2A12Band
+          init_args:
+            strategy: spectral
+        - class_path: albumentations.pytorch.transforms.ToTensorV2
+      test_transform:
+        - class_path: scripts.band_padder.PadToS2L2A12Band
+          init_args:
+            strategy: spectral
+        - class_path: albumentations.pytorch.transforms.ToTensorV2
+      no_data_replace: 0
+      no_label_replace: -1
+  model:
+  # ── Model Config ────────────────────────────────────────────────────────────
+  # This block is needed to load into the model config before
+  # running any TerraMind experiment. The run script copies this block
+  # into the run_config and stores it in the output.
+    init_args:
+      model_args:
+        backbone_modalities:
+          - S2L2A
+        backbone_tim_modalities:
+          - LULC
+        backbone_bands: # Select subset of pre-trained bands
+          S2L2A:
+            - BLUE
+            - GREEN
+            - RED
+            - NIR_NARROW
+            - SWIR_1
+            - SWIR_2
+      class_names:
+        - Others   # class 0
+        - Burned   # class 1
+  generation:
+  # ── Generation ──────────────────────────────────────────────────────────────
+  # This block contains information needed to run generate_pseudolabels.py
+  # for generating LULC as pseudolabels.
+    modality: S2L2A
+    generate_data_root: data/hls_burn_scars/data
+    generate_split: data/hls_burn_scars/splits/train.txt # using train split for now
+    img_glob: "*_merged.tif"
+    

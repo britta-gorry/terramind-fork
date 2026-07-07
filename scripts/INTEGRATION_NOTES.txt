@@ -1,0 +1,238 @@
+INTEGRATION NOTES — transform-based band padding for BurnScars + TiM
+======================================================================
+(This replaces the earlier DataModule-subclass approach entirely. That
+approach hit a genuine ordering bug in terratorch's custom_modules_path
+— confirmed by reading terratorch/cli_tools.py and reproducing the
+exact "No module named 'scripts'" error in isolation: custom_modules_path
+is only consumed inside instantiate_classes(), which runs AFTER
+LightningCLI has already tried to validate data.class_path against the
+LightningDataModule type registry. By the time the custom module would
+load, parsing has already failed. Not fixable from YAML.)
+
+
+────────────────────────────────────────────────────────────────────
+WHY THE TRANSFORM APPROACH AVOIDS THE PROBLEM ENTIRELY
+────────────────────────────────────────────────────────────────────
+
+Confirmed directly from the installed terratorch source:
+
+  - train_transform / val_transform / test_transform are typed as
+    plain `list[Any] | None` in GenericNonGeoSegmentationDataModule's
+    __init__ (terratorch/datamodules/generic_pixel_wise_data_module.py).
+    There's no LightningCLI subclass-type validation on list items —
+    only on top-level data/model class_paths.
+
+  - Each transform dict (class_path/init_args) is resolved LAZILY,
+    at the moment the DataModule is actually instantiated, via
+    instantiate_transform_from_dict() (terratorch/datamodules/utils.py),
+    using a plain importlib.import_module() call. This is the exact
+    same mechanism your config already relies on for
+    albumentations.D4 and albumentations.pytorch.transforms.ToTensorV2
+    — those work today, so this will too.
+
+  - No __init__.py is needed either. Tested directly: Python 3.3+
+    treats a directory without __init__.py as a "namespace package"
+    if its parent is on sys.path, and '' (cwd) is automatically on
+    sys.path for any process — including the terratorch subprocess
+    your run_experiment.py launches from your project root. So
+    scripts.band_padder.PadToS2L2A12Band resolves with zero extra
+    setup, as long as terratorch is invoked from the project root
+    (which it already is in your current workflow).
+
+This was tested end-to-end: built the exact transform list your YAML
+would produce, ran it through terratorch's own wrap_in_compose_is_list(),
+and fed it a fake [H, W, 6] numpy image — confirmed it produces a
+correctly-ordered [12, H, W] tensor after D4 + ToTensorV2, with the
+mask passed through completely untouched.
+
+
+────────────────────────────────────────────────────────────────────
+WHERE THIS RUNS IN THE DATA PIPELINE (confirmed from source)
+────────────────────────────────────────────────────────────────────
+
+terratorch/datasets/generic_pixel_wise_dataset.py, __getitem__():
+
+    image = image.to_numpy()
+    image = np.moveaxis(image, 0, -1)        # -> [H, W, C] channels-last
+    output = {"image": image.astype(np.float32) * self.constant_scale}
+    output["mask"] = mask.to_numpy()[0]
+    if self.transform:
+        output = self.transform(**output)    # <- band_padder runs here,
+                                               #    BEFORE D4/ToTensorV2
+
+So band_padder.PadToS2L2A12Band must be the FIRST transform in the
+list — it expects channels-last numpy [H, W, 6] and outputs [H, W, 12].
+D4 (spatial augmentation) and ToTensorV2 (numpy -> torch, channels
+to front) both run after it, and need no changes themselves.
+
+
+────────────────────────────────────────────────────────────────────
+THE ONLY FILE CHANGE NEEDED — datasets_config.yaml
+────────────────────────────────────────────────────────────────────
+
+No changes to run_experiment.py. No changes to start_config.yaml or
+model_config.yaml. Drop scripts/band_padder.py into your scripts/
+folder, then in datasets_config.yaml, find burnscars -> data and add
+ONE new entry at the START of train_transform, val_transform, AND
+test_transform (all three — test/predict need padded input too):
+
+  burnscars:
+    data:
+      class_path: terratorch.datamodules.GenericNonGeoSegmentationDataModule   # UNCHANGED
+      init_args:
+        batch_size: 8
+        num_workers: 2
+        dataset_bands:
+          - BLUE
+          - GREEN
+          - RED
+          - NIR_NARROW
+          - SWIR_1
+          - SWIR_2
+        rgb_indices:
+          - 2
+          - 1
+          - 0
+        train_data_root: data/hls_burn_scars/data
+        val_data_root: data/hls_burn_scars/data
+        test_data_root: data/hls_burn_scars/data
+        train_split: data/hls_burn_scars/splits/train.txt
+        val_split: data/hls_burn_scars/splits/val.txt
+        test_split: data/hls_burn_scars/splits/test.txt
+        predict_data_root: data/hls_burn_scars/data
+        img_grep: "*_merged.tif"
+        label_grep: "*.mask.tif"
+        means:
+          # ── CHANGED: must now have 12 entries to match the padded
+          # 12-band output, not 6. Use TerraMind's own S2L2A pretraining
+          # means/stds for the bands you don't have real statistics for
+          # — this matches what the model expects to see in those slots.
+          - 1390.458   # COASTAL_AEROSOL (padded)
+          - 1503.317   # BLUE (real BurnScars band — consider using your
+          - 1718.197   # GREEN  own measured stats here instead if you have them;
+          - 1853.910   # RED    these defaults are TerraMind's pretraining means)
+          - 2199.100   # RED_EDGE_1 (padded)
+          - 2779.975   # RED_EDGE_2 (padded)
+          - 2987.011   # RED_EDGE_3 (padded)
+          - 3083.234   # NIR_BROAD (padded)
+          - 3132.220   # NIR_NARROW (real BurnScars band)
+          - 3162.988   # WATER_VAPOR (padded)
+          - 2424.884   # SWIR_1 (real BurnScars band)
+          - 1857.648   # SWIR_2 (real BurnScars band)
+        stds:
+          - 2106.761
+          - 2141.107
+          - 2038.973
+          - 2134.138
+          - 2085.321
+          - 1889.926
+          - 1820.257
+          - 1871.918
+          - 1753.829
+          - 1797.379
+          - 1434.261
+          - 1334.311
+        num_classes: 2
+        train_transform:
+          # ── ADDED: must be FIRST in the list ──
+          - class_path: scripts.band_padder.PadToS2L2A12Band
+            init_args:
+              strategy: mean      # zero | mean | spectral
+              verbose: false      # set true to confirm padding on first batches
+          # ── UNCHANGED ──
+          - class_path: albumentations.D4
+          - class_path: albumentations.pytorch.transforms.ToTensorV2
+        val_transform:
+          # ── ADDED — val needs padding too, even with no augmentation ──
+          - class_path: scripts.band_padder.PadToS2L2A12Band
+            init_args:
+              strategy: mean
+          - class_path: albumentations.pytorch.transforms.ToTensorV2
+        test_transform:
+          # ── ADDED — test/predict reuse this ──
+          - class_path: scripts.band_padder.PadToS2L2A12Band
+            init_args:
+              strategy: mean
+          - class_path: albumentations.pytorch.transforms.ToTensorV2
+        no_data_replace: 0
+        no_label_replace: -1
+
+IMPORTANT — about means/stds above:
+Your BurnScars config's original means/stds were 6 values, computed on
+the raw 0-1 scaled BurnScars data (e.g. 0.0333 for BLUE). Once the
+transform pads to 12 bands, GenericNonGeoSegmentationDataModule will
+normalise using whatever means/stds list you give it, and it expects
+12 entries to match the 12-band tensor now flowing through. The values
+above use TerraMind's own raw-scale S2L2A pretraining statistics for
+ALL 12 positions (not a mix of two different scales), since mixing
+BurnScars' 0-1 scaled stats for the real bands with TerraMind's
+raw-scale stats for padded bands would normalise inconsistently across
+channels. This means your real BurnScars bands will now be normalised
+using TerraMind's general-purpose S2L2A statistics rather than
+BurnScars-specific ones — a reasonable tradeoff for TiM compatibility,
+but worth being aware of if you're comparing mIoU directly against
+your earlier non-TiM BurnScars baseline.
+
+
+────────────────────────────────────────────────────────────────────
+HOW THE THREE STRATEGIES WORK (unchanged from earlier explanation)
+────────────────────────────────────────────────────────────────────
+
+  zero      Pads missing bands with 0. Unphysical, smoke-test only.
+  mean      Pads missing bands with TerraMind's own pretraining mean
+            for that exact band position. Recommended starting point.
+  spectral  Linearly interpolates each missing band's value from the
+            two nearest real bands by wavelength — e.g. RED_EDGE_1
+            (705nm) is interpolated between RED (665nm) and NIR_NARROW
+            (865nm) using the actual per-pixel values in this scene,
+            not a fixed global constant. Most physically grounded;
+            worth using once you move past the BurnScars sanity check
+            toward genuinely out-of-distribution scenes like Antarctic
+            ice/rock, where the temperate S2L2A pretraining mean is a
+            poor stand-in for what a missing band would actually read.
+
+
+────────────────────────────────────────────────────────────────────
+TESTING BEFORE A FULL RUN
+────────────────────────────────────────────────────────────────────
+
+From your project root:
+
+pixi run python -c "
+from terratorch.datamodules.utils import wrap_in_compose_is_list
+cfg = [{'class_path': 'scripts.band_padder.PadToS2L2A12Band',
+         'init_args': {'strategy': 'mean', 'verbose': True}},
+        {'class_path': 'albumentations.pytorch.transforms.ToTensorV2'},]
+composed = wrap_in_compose_is_list(cfg)
+import numpy as np
+fake = (np.random.rand(64, 64, 6) * 3000).astype('float32')
+out = composed(image=fake, mask=np.zeros((64,64), dtype='int64'))
+print('Output image shape:', out['image'].shape)
+assert out['image'].shape[0] == 12
+print('OK')
+"
+
+Expected output:
+    [band_padder] strategy='mean'  kept=[...]  padded=[...]  out_shape=(64, 64, 12)
+    Output image shape: torch.Size([12, 64, 64])
+    OK
+
+This exact check (with a real fake batch, not just an import check)
+was run against the installed terratorch package while preparing this
+patch, and passed.
+
+Then run your normal 1-epoch smoke test via run_experiment.py — no
+changes needed there at all this time.
+
+
+────────────────────────────────────────────────────────────────────
+SUMMARY OF FILES TOUCHED
+────────────────────────────────────────────────────────────────────
+
+  scripts/band_padder.py     NEW FILE (provided) — no __init__.py needed
+  datasets_config.yaml       EDIT: burnscars.data.init_args — add the
+                              padder as the first train/val/test_transform
+                              entry, and update means/stds to 12 entries
+  run_experiment.py          NO CHANGE
+  start_config.yaml          NO CHANGE
+  model_config.yaml          NO CHANGE

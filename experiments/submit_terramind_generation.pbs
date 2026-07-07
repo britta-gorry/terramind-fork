@@ -1,0 +1,96 @@
+#!/bin/bash
+# ─────────────────────────────────────────────────────────────────────────────
+# submit_terramind_generation.pbs
+#
+# PBS job submission script for TerraMind generation experiments.
+# Run with:  qsub submit_terramind_generation.pbs
+#
+# To run a different script, change the SCRIPT variable below.
+#
+# SCRIPTS AVAILABLE:
+#   terramind_generation.py             — single example, basic generation
+#   terramind_large_tile_generation.py  — large tile with tiled_inference
+#   terramind_any_to_any_generation.py  — all modalities as input/output
+#   terramind_tokenizer_reconstruction.py — tokenizer encode/decode analysis
+#
+# RESOURCE GUIDE (Aqua HPC):
+#   Basic generation (single 224×224 patch):
+#     GPU: 1 × A100 or V100, ~4 GB VRAM, ~5 min walltime
+#   Large tile (2000×2000, crop=256, stride=192):
+#     GPU: 1 × A100, ~12 GB VRAM, ~30–60 min walltime
+#   Any-to-any (5 modalities):
+#     GPU: 1 × A100, ~16 GB VRAM, ~60–90 min walltime (re-initialises model N times)
+#   Tokenizer reconstruction:
+#     GPU: 1 × A100, ~4 GB VRAM, ~5 min walltime
+#
+# ADJUSTING RESOURCES:
+#   - If you get OOM (out of memory) errors: reduce batch_size, tile_crop, or
+#     the number of modalities in the script configuration section.
+#   - If the job is killed for exceeding walltime: increase walltime below, or
+#     reduce the number of diffusion timesteps (TIMESTEPS) in the script.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Which script to run ───────────────────────────────────────────────────────
+SCRIPT="terramind_generation.py"
+
+# ── PBS directives ────────────────────────────────────────────────────────────
+
+# Job name (visible in qstat)
+#PBS -N terramind_generation
+
+# Resources: 1 GPU node, 8 CPUs, 32 GB RAM, 1 GPU
+# Adjust mem and ncpus if you encounter resource limit errors.
+#PBS -l select=1:ncpus=8:mem=32gb:ngpus=1
+
+# Wall time: HH:MM:SS.  Large-tile and any-to-any jobs need more.
+#PBS -l walltime=01:00:00
+
+# Merge stdout and stderr into one file (easier to read)
+#PBS -j oe
+
+# Output log file name (PBS stdout/stderr, separate from the script's run.log)
+#PBS -o pbs_generation.log
+
+# Email on job end and abort (optional — comment out if not wanted)
+# #PBS -m ae
+# #PBS -M your.email@university.edu.au
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Environment setup
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Print job info to the PBS log
+echo "========================================================================"
+echo "PBS Job ID:    $PBS_JOBID"
+echo "Job name:      $PBS_JOBNAME"
+echo "Compute node:  $(hostname)"
+echo "Start time:    $(date)"
+echo "Working dir:   $PBS_O_WORKDIR"
+echo "Script:        $SCRIPT"
+echo "========================================================================"
+
+# Change to the directory from which qsub was run
+cd "$PBS_O_WORKDIR" || { echo "ERROR: could not cd to $PBS_O_WORKDIR"; exit 1; }
+
+# ── Activate environment ──────────────────────────────────────────────────────
+# This project uses pixi for environment management.
+# If your pixi.toml is in the same directory, 'pixi run' will pick it up.
+#
+# OPTION A — pixi (recommended for this project):
+pixi run python "$SCRIPT"
+EXIT_CODE=$?
+
+# OPTION B — conda (uncomment if you are not using pixi):
+# source ~/miniconda3/etc/profile.d/conda.sh
+# conda activate terramind
+# python "$SCRIPT"
+# EXIT_CODE=$?
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+echo "========================================================================"
+echo "End time:   $(date)"
+echo "Exit code:  $EXIT_CODE"
+echo "========================================================================"
+
+exit $EXIT_CODE

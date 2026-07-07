@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# RUN CONDITIONS
+#
+# This file contains run conditions to be parsed into the run_experiment.py
+# script for running TerraMind experiments. 
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXPERIMENT SETUP
+# ─────────────────────────────────────────────────────────────────────────────
+setup:
+  name:       "base_tim_burn"
+  aim:        "Test TerraMind with TiM given band adaptation"
+  dataset:    "burnscars"
+  backbone:   "terramind_v1_base_tim"
+  run_notes:  "Testing various experiments with band padding for burnscars."
+  #  Add any additional notes about the experiment conditions here
+      # Next plan to compare base vs large, no tim vs tim, flood vs burn:
+      # ----------------------------------------------------
+      #       backbone          tim           dataset
+      # ----------------------------------------------------
+      #   1     base            ✗            sen1floods11
+      #   2     base            ✗            burnscars
+      #   3     base            ✓            sen1floods11
+      #   4     base            ✓            burnscars
+      #   5     large           ✗            sen1floods11
+      #   6     large           ✗            burnscars
+      #   7     large           ✓            sen1floods11
+      #   8     large           ✓            burnscars
+      # ----------------------------------------------------
+  # ── Steps  (True = run, False = skip) ────────────────────────────────────────
+  steps:
+    generate:  true
+    fit:       true
+    test:      true   # blocked automatically when label_n = 0
+    predict:   true
+    visualise: true
+  # ── Checkpoint ───────────────────────────────────────────────────────────────
+  overrides:
+    max_epochs: 100 # one epoch to check if it runs all the way through without labels
+    freeze_backbone:  false
+    freeze_decoder:   false
+    checkpoint:       null
+# custom_modules_path: ./scripts
+
+# ──────────────────────────────────────────────────────────────────────────────
+# BLOCKS PATCHED FROM DATA AND MODEL CONFIGS
+# ──────────────────────────────────────────────────────────────────────────────
+seed_everything:  __SEED_EVERYTHING__
+dataset_notes:    __DATASET_NOTES__
+generation:       __GENERATION__
+data:             __DATA_CONFIG__
+model:            __MODEL_CONFIG__
+trainer:          __TRAINER__
+optimizer:        __OPTIMIZER__
+lr_scheduler:     __LR_SCHEDULER__

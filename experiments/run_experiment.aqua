@@ -43,7 +43,8 @@
 # A short name describing this experiment. Used in the output folder name.
 # Convention: <dataset>_<backbone>  e.g. sen1floods11_base, burnscars_large
 # EXPERIMENT_NAME="sen1floods11_terramind_base"
-EXPERIMENT_NAME="burnscars_terramind_base"
+# EXPERIMENT_NAME="burnscars_terramind_base"
+EXPERIMENT_NAME="tim_unlabelled_base_sen1floods11"
 
 
 # Path to the config file for this experiment (relative to terramind root).
@@ -51,7 +52,7 @@ EXPERIMENT_NAME="burnscars_terramind_base"
 # To switch backbone: edit backbone/SelectIndices inside the config file,
 #   or copy the config, edit the copy, and point this at the copy.
 # CONFIG="experiments/terramind_v1_base_sen1floods11.yaml"
-CONFIG="experiments/terramind_v1_base_burnscars.yaml"
+CONFIG="experiments/terramind_v1_base_tim_sen1floods11.yaml"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
