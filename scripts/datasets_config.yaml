@@ -327,7 +327,7 @@ burnscars12bands: # ── HLS BURNSCARS 12 BANDS ──────────
         - class_path: scripts.band_padder.PadToS2L2A12Band
           init_args:
             strategy: spectral      # zero | mean (scale causes error) | spectral
-            verbose: true      # set true to confirm padding on first batches
+            verbose: false      # set true to confirm padding on first batches
         - class_path: albumentations.D4
         - class_path: albumentations.pytorch.transforms.ToTensorV2
       val_transform:

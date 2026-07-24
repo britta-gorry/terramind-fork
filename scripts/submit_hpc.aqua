@@ -16,49 +16,49 @@
 #PBS -l select=1:ncpus=6:ngpus=1:mem=64gb
 #PBS -l walltime=48:00:00
 #PBS -m abe
-# # PBS -M n brittany.gorry@hdr.qut.edu.au
+#PBS -M brittany.gorry@hdr.qut.edu.au
 #PBS -j oe
 
 # Array jobs
-# PBS -J n 1-8
+# # PBS -J n 1-8
 
 cd $PBS_O_WORKDIR
 
 # ── Set args for each job ──────────────────────────────────────────────────────
 # Align configurations with 1-indexed PBS array tracker
-if [ $PBS_ARRAY_INDEX -eq 1 ]; then
-    NAME="base_flood"
-    DATASET="sen1floods11"
-    BACKBONE="terramind_v1_base"
-elif [ $PBS_ARRAY_INDEX -eq 2 ]; then
-    NAME="base_burn"
-    DATASET="burnscars"
-    BACKBONE="terramind_v1_base"
-elif [ $PBS_ARRAY_INDEX -eq 3 ]; then
-    NAME="base_tim_flood"
-    DATASET="sen1floods11"
-    BACKBONE="terramind_v1_base_tim"
-elif [ $PBS_ARRAY_INDEX -eq 4 ]; then
-    NAME="base_tim_burn"
-    DATASET="burnscars12bands"
-    BACKBONE="terramind_v1_base_tim"
-elif [ $PBS_ARRAY_INDEX -eq 5 ]; then
-    NAME="large_flood"
-    DATASET="sen1floods11"
-    BACKBONE="terramind_v1_large"
-elif [ $PBS_ARRAY_INDEX -eq 6 ]; then
-    NAME="large_burn"
-    DATASET="burnscars"
-    BACKBONE="terramind_v1_large"
-elif [ $PBS_ARRAY_INDEX -eq 7 ]; then
-    NAME="large_tim_flood"
-    DATASET="sen1floods11"
-    BACKBONE="terramind_v1_large_tim"
-elif [ $PBS_ARRAY_INDEX -eq 8 ]; then
-    NAME="large_tim_burn"
-    DATASET="burnscars12bands"
-    BACKBONE="terramind_v1_large_tim"
-fi
+# if [ $PBS_ARRAY_INDEX -eq 1 ]; then
+#     NAME="base_flood"
+#     DATASET="sen1floods11"
+#     BACKBONE="terramind_v1_base"
+# elif [ $PBS_ARRAY_INDEX -eq 2 ]; then
+#     NAME="base_burn"
+#     DATASET="burnscars"
+#     BACKBONE="terramind_v1_base"
+# elif [ $PBS_ARRAY_INDEX -eq 3 ]; then
+#     NAME="base_tim_flood"
+#     DATASET="sen1floods11"
+#     BACKBONE="terramind_v1_base_tim"
+# elif [ $PBS_ARRAY_INDEX -eq 4 ]; then
+#     NAME="base_tim_burn"
+#     DATASET="burnscars12bands"
+#     BACKBONE="terramind_v1_base_tim"
+# elif [ $PBS_ARRAY_INDEX -eq 5 ]; then
+#     NAME="large_flood"
+#     DATASET="sen1floods11"
+#     BACKBONE="terramind_v1_large"
+# elif [ $PBS_ARRAY_INDEX -eq 6 ]; then
+#     NAME="large_burn"
+#     DATASET="burnscars"
+#     BACKBONE="terramind_v1_large"
+# elif [ $PBS_ARRAY_INDEX -eq 7 ]; then
+#     NAME="large_tim_flood"
+#     DATASET="sen1floods11"
+#     BACKBONE="terramind_v1_large_tim"
+# elif [ $PBS_ARRAY_INDEX -eq 8 ]; then
+#     NAME="large_tim_burn"
+#     DATASET="burnscars12bands"
+#     BACKBONE="terramind_v1_large_tim"
+# fi
 
 # ── Status printout ────────────────────────────────────────────────────────────
 echo "=========================================================================="
@@ -82,12 +82,12 @@ echo "pixi:       $(pixi --version)"
 echo "=========================================================================="
 
 # ── Run python script ─────────────────────────────────────────────────────────
-pixi run python scripts/run_experiment.py \
-    --name "$NAME" \
-    --dataset "$DATASET" \
-    --backbone "$BACKBONE"
+# pixi run python scripts/run_experiment.py \
+#     --name "$NAME" \
+#     --dataset "$DATASET" \
+#     --backbone "$BACKBONE"
 
-# pixi run python scripts/run_experiment.py
+pixi run python scripts/run_experiment.py
 
 
 echo ""

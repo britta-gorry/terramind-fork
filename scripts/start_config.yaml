@@ -9,11 +9,11 @@
 # EXPERIMENT SETUP
 # ─────────────────────────────────────────────────────────────────────────────
 setup:
-  name:       "base_tim_burn"
+  name:       "base_burn"
   aim:        "Test TerraMind with TiM given band adaptation"
   dataset:    "burnscars"
-  backbone:   "terramind_v1_base_tim"
-  run_notes:  "Testing various experiments with band padding for burnscars."
+  backbone:   "terramind_v1_base"
+  run_notes:  "Testing various experiments with band padding for burnscars, for comparison."
   #  Add any additional notes about the experiment conditions here
       # Next plan to compare base vs large, no tim vs tim, flood vs burn:
       # ----------------------------------------------------
